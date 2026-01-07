@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive AI Particles - Full Version</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        /* Main 3D Scene */
+        #canvas-container { position: absolute; width: 100%; height: 100%; z-index: 1; }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #444;
+            pointer-events: none;
+        }
+
+        /* Camera Feed (Bottom Right) */
+        #video-container {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 220px;
+            height: 165px;
+            border: 3px solid #00ff88;
+            border-radius: 15px;
+            overflow: hidden;
+            z-index: 10;
+            transform: scaleX(-1); /* Mirror Effect */
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background: #ff4444;
+        }
+        .active { background: #00ff88; box-shadow: 0 0 10px #00ff88; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h2 style="margin:0 0 10px 0; font-size: 18px;">AI Particle Controller</h2>
+        <div><span id="dot" class="status-dot"></span> <span id="status">Loading AI Models...</span></div>
+        <p style="font-size: 12px; color: #aaa; margin-top: 10px;">
+            • Move hand to attract particles<br>
+            • Pinch (Thumb + Index) to change color
+        </p>
+    </div>
+
+    <div id="video-container">
+        <video id="video" autoplay playsinline></video>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('video');
+        const statusText = document.getElementById('status');
+        const statusDot = document.getElementById('dot');
+
+        // --- 1. THREE.JS SCENE SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Particle System
+        const particleCount = 8000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const originalPositions = new Float32Array(particleCount * 3);
+
+        for (let i = 0; i < particleCount * 3; i++) {
+            const val = (Math.random() - 0.5) * 15;
+            positions[i] = val;
+            originalPositions[i] = val;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        const material = new THREE.PointsMaterial({
+            size: 0.035,
+            color: 0x00ffff,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+        camera.position.z = 6;
+
+        // --- 2. HAND TRACKING LOGIC ---
+        let targetX = 0, targetY = 0, isTracking = false;
+        let isPinching = false;
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isTracking = true;
+                statusDot.classList.add('active');
+                statusText.innerText = "Tracking Active";
+
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Track Index Finger Tip (Landmark 8)
+                const indexTip = landmarks[8];
+                targetX = (0.5 - indexTip.x) * 16;
+                targetY = (0.5 - indexTip.y) * -12;
+
+                // Detect Pinch (Distance between Thumb Tip #4 and Index Tip #8)
+                const thumbTip = landmarks[4];
+                const distance = Math.sqrt(
+                    Math.pow(indexTip.x - thumbTip.x, 2) + 
+                    Math.pow(indexTip.y - thumbTip.y, 2)
+                );
+
+                if (distance < 0.05) {
+                    if (!isPinching) {
+                        material.color.setHSL(Math.random(), 1.0, 0.5); // Random Color
+                        isPinching = true;
+                    }
+                } else {
+                    isPinching = false;
+                }
+            } else {
+                isTracking = false;
+                statusDot.classList.remove('active');
+                statusText.innerText = "Hand Not Detected";
+            }
+        });
+
+        const cam = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({ image: videoElement }); },
+            width: 640, height: 480
+        });
+        cam.start();
+
+        // --- 3. ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const posArray = geometry.attributes.position.array;
+            const time = Date.now() * 0.001;
+
+            for (let i = 0; i < particleCount; i++) {
+                const ix = i * 3;
+                const iy = i * 3 + 1;
+                const iz = i * 3 + 2;
+
+                if (isTracking) {
+                    // Pull to hand
+                    posArray[ix] += (targetX - posArray[ix]) * 0.03;
+                    posArray[iy] += (targetY - posArray[iy]) * 0.03;
+                    posArray[iz] += (0 - posArray[iz]) * 0.03;
+                } else {
+                    // Drift back to random positions
+                    posArray[ix] += (originalPositions[ix] - posArray[ix]) * 0.01;
+                    posArray[iy] += (originalPositions[iy] - posArray[iy]) * 0.01;
+                    // Add subtle wave
+                    posArray[iy] += Math.sin(time + i) * 0.002;
+                }
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+            particleSystem.rotation.y += 0.001;
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
