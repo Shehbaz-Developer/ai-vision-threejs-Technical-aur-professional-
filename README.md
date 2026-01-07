@@ -6,7 +6,7 @@ A cutting-edge, real-time 3D particle system that responds to your hand gestures
 
 ## 🎮 Live Demo
 [https://github.com/Shehbaz-Developer]
-*(Example: https://yourusername.github.io/ai-vision-threejs/)*
+*(Example:https://github.com/Shehbaz-Developer/ai-vision-threejs/)*
 
 ---
 
